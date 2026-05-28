@@ -1,0 +1,3 @@
+bcryptjs : use for hashing
+jsonwebtoken : to create jwt token
+cookie-parser : to set token in cookie and read it from cookie
