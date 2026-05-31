@@ -1,5 +1,5 @@
 const pdfParse = require("pdf-parse");
-const generateInterviewReport = require("../services/ai.service");
+const { generateInterviewReport, generateResumePdf, generatePdfFromHtml } = require("../services/ai.service");
 const InterviewReportModel = require("../models/interviewReport.model");
 
 
@@ -16,9 +16,16 @@ async function generateInterviewReportController(req, res) {
     }
 
     let resumeText = null;
+    let resumeLinks = [];
     if (resumeFile) {
         const resumeContent = await (new pdfParse.PDFParse(new Uint8Array(resumeFile.buffer))).getText();
         resumeText = resumeContent.text;
+        // Extract URLs from visible text
+        const textUrls = resumeText.match(/https?:\/\/[^\s,)>]+/gi) || [];
+        // Also scan raw PDF buffer for hyperlink annotations stored as plaintext URI strings
+        const rawPdfString = resumeFile.buffer.toString("latin1");
+        const bufferUrls = rawPdfString.match(/https?:\/\/[^\s,)>\]"']+/gi) || [];
+        resumeLinks = [...new Set([...textUrls, ...bufferUrls])];
     }
 
     const interviewReportByAi = await generateInterviewReport({ resume: resumeText, selfDescription, jobDescription });
@@ -26,6 +33,7 @@ async function generateInterviewReportController(req, res) {
     const interviewReport = await InterviewReportModel.create({
         user: req.user.id,
         resumeText,
+        resumeLinks,
         selfDescription,
         jobDescription,
         ...interviewReportByAi
@@ -56,7 +64,7 @@ async function getAllReportsController(req, res) {
 
 async function getReportByIdController(req, res) {
     const { interviewId } = req.params;
-    const report = await InterviewReportModel.findById(interviewId);
+    const report = await InterviewReportModel.findById(interviewId).select("-resumeText -resumeLinks -generatedResumeHtml -__v");
     if (!report) {
         return res.status(404).json({ message: "Interview report not found" });
     }
@@ -66,4 +74,36 @@ async function getReportByIdController(req, res) {
     });
 }
 
-module.exports = { generateInterviewReportController, getAllReportsController, getReportByIdController }
+
+/**
+ * @description Controller to generate resume PDF based on the interview report 
+ */
+
+async function generateResumePdfController(req, res) {
+    const { interviewId } = req.params;
+    const report = await InterviewReportModel.findById(interviewId);
+    if (!report) {
+        return res.status(404).json({ message: "Interview report not found" });
+    }
+
+    let resumePdfBuffer;
+
+    if (report.generatedResumeHtml) {
+        // Use cached HTML — skip Gemini API call
+        resumePdfBuffer = await generatePdfFromHtml(report.generatedResumeHtml);
+    } else {
+        // First time — generate via Gemini and cache the HTML
+        const { resumeText, jobDescription, selfDescription, resumeLinks } = report;
+        const { html, pdfBuffer } = await generateResumePdf({ resume: resumeText, jobDescription, selfDescription, resumeLinks: resumeLinks || [] });
+        resumePdfBuffer = pdfBuffer;
+        await InterviewReportModel.findByIdAndUpdate(interviewId, { generatedResumeHtml: html });
+    }
+
+    res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename=resume_${report._id}.pdf`,
+    }); 
+    res.send(resumePdfBuffer);
+}
+
+module.exports = { generateInterviewReportController, getAllReportsController, getReportByIdController, generateResumePdfController }

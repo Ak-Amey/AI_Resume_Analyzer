@@ -1,46 +1,20 @@
-import axios from "axios";
-
-const api = axios.create({
-    baseURL: "http://localhost:3000",
-    withCredentials: true
-})
+import api from "../../../services/api";
 
 export async function register({ username, email, password }) {
-    try {
-        const response = await api.post("/api/auth/register", { username, email, password });
-        return response.data;
-    }
-    catch (err) {
-        console.error("Error registering user:", err);
-    }
+    const response = await api.post("/api/auth/register", { username, email, password });
+    return response.data;
 }
 
 export async function login({ email, password }) {
-    try {
-        const response = await api.post("/api/auth/login", { email, password });
-        return response.data;
-    }
-    catch (err) {
-        console.error("Error logging in user:", err);
-    }
+    const response = await api.post("/api/auth/login", { email, password });
+    return response.data;
 }
 
 export async function logout() {
-    try {
-        await api.post("/api/auth/logout", {});
-
-    }
-    catch (err) {
-        console.error("Error logging out user:", err);
-    }
+    await api.post("/api/auth/logout", {});
 }
 
 export async function getCurrentUser() {
-    try {
-        const response = await api.get("/api/auth/getuser");
-        return response.data;
-    }
-    catch (err) {
-        console.error("Error fetching current user:", err);
-    }
+    const response = await api.get("/api/auth/getuser");
+    return response.data;
 }
